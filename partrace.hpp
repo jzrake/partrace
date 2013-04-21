@@ -13,7 +13,7 @@ class ElectromagneticField
 {
 public:
   virtual ~ElectromagneticField() { }
-  virtual void sample_field(ChargedParticle &p) const;
+  virtual void sample_field(ChargedParticle &p) const = 0;
 } ;
 
 class ChargedParticle
@@ -24,6 +24,8 @@ public:
   double e, m;
   int I;
   double lorentz_factor() const;
+  double pitch_angle() const;
+  double larmor_frequency() const;
 } ;
 
 class ParticleManager
@@ -55,6 +57,17 @@ public:
   virtual ~UniformElectromagneticField() { }
   virtual void sample_field(ChargedParticle &p) const;
   void set_field(const double B[4], const double E[4]);
+} ;
+
+class AlfvenWaveElectromagneticField
+{
+private:
+  double alfven_angular_frequency;
+public:
+  AlfvenWaveElectromagneticField();
+  virtual ~AlfvenWaveElectromagneticField() { }
+  virtual void sample_field(ChargedParticle &p) const;
+  void set_alfven_angular_frequency(double w);
 } ;
 
 
