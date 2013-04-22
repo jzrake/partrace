@@ -2,6 +2,7 @@
 #define PARTICLE_HPP
 
 #include <iostream>
+#include <vector>
 
 
 class ChargedParticle;
@@ -26,6 +27,7 @@ public:
   double lorentz_factor() const;
   double pitch_angle() const;
   double larmor_frequency() const;
+  double larmor_radius() const;
 } ;
 
 class ParticleManager
@@ -47,7 +49,7 @@ protected:
 std::ostream &operator<<(std::ostream &s, ChargedParticle &p);
 
 
-class UniformElectromagneticField
+class UniformElectromagneticField : public ElectromagneticField
 {
 private:
   double B[4];
@@ -59,15 +61,37 @@ public:
   void set_field(const double B[4], const double E[4]);
 } ;
 
-class AlfvenWaveElectromagneticField
+class AlfvenWaveElectromagneticField : public ElectromagneticField
 {
 private:
   double alfven_angular_frequency;
+  double alfven_speed;
+  double amplitude;
+  double phase;
 public:
   AlfvenWaveElectromagneticField();
   virtual ~AlfvenWaveElectromagneticField() { }
   virtual void sample_field(ChargedParticle &p) const;
-  void set_alfven_angular_frequency(double w);
+  void set_alfven_angular_frequency(double w) { alfven_angular_frequency=w; }
+  void set_alfven_speed(double v) { alfven_speed=v; }
+  void set_amplitude(double A) { amplitude=A; }
+  void set_phase(double p) { phase=p; }
+  double get_wavenumber() { return alfven_angular_frequency / alfven_speed; }
+} ;
+
+class CompositeElectromagneticField : public ElectromagneticField
+{
+private:
+  std::vector<ElectromagneticField*> fields;
+public:
+  virtual ~CompositeElectromagneticField();
+  virtual void sample_field(ChargedParticle &p) const;
+  template <class T> T &add_field()
+  {
+    ElectromagneticField *field = new T;
+    fields.push_back(field);
+    return *dynamic_cast<T*>(field);
+  }
 } ;
 
 

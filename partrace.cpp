@@ -6,14 +6,14 @@ std::ostream &operator<<(std::ostream &s, ChargedParticle &p)
 {
   char line[2048];
   snprintf(line, 2048,
-	   "%+16.12e %+16.12e %+16.12e %+16.12e "
-	   "%+16.12e %+16.12e %+16.12e %+16.12e "
-	   "%+16.12e %+16.12e %+16.12e %+16.12e "
-	   "%+16.12e %+16.12e %+16.12e %+16.12e",
-	   p.x[0], p.x[1], p.x[2], p.x[3],
-	   p.u[0], p.u[1], p.u[2], p.u[3],
-	   p.B[0], p.B[1], p.B[2], p.B[3],
-	   p.E[0], p.E[1], p.E[2], p.E[3]);
+           "%+16.12e %+16.12e %+16.12e %+16.12e "
+           "%+16.12e %+16.12e %+16.12e %+16.12e "
+           "%+16.12e %+16.12e %+16.12e %+16.12e "
+           "%+16.12e %+16.12e %+16.12e %+16.12e",
+           p.x[0], p.x[1], p.x[2], p.x[3],
+           p.u[0], p.u[1], p.u[2], p.u[3],
+           p.B[0], p.B[1], p.B[2], p.B[3],
+           p.E[0], p.E[1], p.E[2], p.E[3]);
   s << line;
   return s;
 }
@@ -83,6 +83,11 @@ double ChargedParticle::larmor_frequency() const
   double B0 = sqrt(P::v_dot_v(B));
   return (e * B0) / (u[0] * m);
 }
+double ChargedParticle::larmor_radius() const
+{
+  double v = sqrt(1.0 - 1.0 / pow(lorentz_factor(), 2.0));
+  return v / larmor_frequency();
+}
 
 
 
@@ -111,7 +116,10 @@ set_field(const double B_[4], const double E_[4])
 }
 
 AlfvenWaveElectromagneticField::AlfvenWaveElectromagneticField()
-  : alfven_angular_frequency(1.0)
+  : alfven_angular_frequency(1.0),
+    alfven_speed(1e-2),
+    amplitude(1e-4),
+    phase(0.0)
 {
 
 }
@@ -119,29 +127,22 @@ AlfvenWaveElectromagneticField::AlfvenWaveElectromagneticField()
 void AlfvenWaveElectromagneticField::
 sample_field(ChargedParticle &p) const
 {
-  double B0 = 1.0; // Background field strength
-  double B1 = 1e-1; // Field fluctuation
-  double va = 0.01; // Alfven speed (in units of c)
+  double B1 = amplitude; // Field fluctuation
+  double va = alfven_speed; // Alfven speed (in units of c)
   double w = alfven_angular_frequency;
   double k = w / va; // Wavenumber
 
   double t = p.x[0];
   double x = p.x[1];
 
-  p.B[1] = B0;
-  p.B[2] = B1 * cos(k*x - w*t);
+  p.B[1] = 0.0;
+  p.B[2] = B1 * cos(k*x - w*t + phase);
   p.B[3] = 0.0;
 
   p.E[1] = 0.0;
   p.E[2] = 0.0;
-  p.E[3] = -va * B1;
+  p.E[3] = -va * p.B[2];
 }
-void AlfvenWaveElectromagneticField::
-set_alfven_angular_frequency(double w)
-{
-  alfven_angular_frequency = 1.0;
-}
-
 
 int compare_movers()
 {
@@ -164,38 +165,93 @@ int compare_movers()
   return 0;
 }
 
+CompositeElectromagneticField::~CompositeElectromagneticField()
+{
+  for (unsigned int n=0; n<fields.size(); ++n) {
+    delete fields[n];
+  }
+}
+void CompositeElectromagneticField::sample_field(ChargedParticle &p) const
+{
+  for (int i=0; i<4; ++i) {
+    p.B[i] = 0.0;
+    p.E[i] = 0.0;
+  }
+  for (unsigned int n=0; n<fields.size(); ++n) {
+    ChargedParticle p1 = p;
+    fields[n]->sample_field(p1);
+
+    for (int i=0; i<4; ++i) {
+      p.B[i] += p1.B[i];
+      p.E[i] += p1.E[i];
+    }
+  }
+}
+
 int evolve_single()
 {
-  HymanParticleManager hyman;
+  //  HymanParticleManager mover;
+  BorisParticleManager mover;
   ChargedParticle p1;
-  AlfvenWaveElectromagneticField field;
+  CompositeElectromagneticField field;
 
-  /*
-  UniformElectromagneticField field;
-  double B0[4] = { 0, 0, 0, 1 };
-  field.set_field(B0, NULL);
-  */
 
   p1.u[2] = 1.0;
   p1.u[0] = p1.lorentz_factor();
 
-  field.sample_field(p1);
 
-  int steps_per_orbit = 100;
+  double B0[4] = { 0.0, 1.0, 0.0, 0.0 };
+  UniformElectromagneticField &F0 = field.add_field<UniformElectromagneticField>();
+  F0.set_field(B0, NULL);
+  F0.sample_field(p1);
+
+
+  double alfven_speed = 1e-3;
   double w = p1.larmor_frequency();
   double f = w / (2 * M_PI);
-  double dt = 1.0 / (steps_per_orbit * f);
-  double tmax = 1000.0 / f;
+  double Q = w * 0.1; // the fundamental mode wrt the gyration frequency
 
-  field.set_alfven_angular_frequency(1e-1 * w);
+  typedef AlfvenWaveElectromagneticField Alf;
+
+  for (int n=1; n<100; ++n) {
+    Alf &f = field.add_field<Alf>();
+    f.set_alfven_angular_frequency(Q * n);
+    f.set_alfven_speed(alfven_speed);
+    f.set_amplitude(1e-4);
+    f.set_phase(2.0 * M_PI * rand() / RAND_MAX);
+  }
+
+  /*
+  double k = Q / alfven_speed;
+  double L = 2 * M_PI / k;
+  for (int i=0; i<100000; ++i) {
+    p1.x[0] = 0.0;
+    p1.x[1] = (i/50000.0) * L;
+    p1.x[2] = 0.0;
+    p1.x[3] = 0.0;
+    field.sample_field(p1);
+    printf("%f %f\n", p1.x[1], p1.B[2]);
+  }
+  exit(1);
+  */
+
+  int iter = 0;
+  int steps_per_orbit = 10;
+  double dt = 1.0 / (steps_per_orbit * f);
+  double tmax = 1000000.0 / f;
 
   while (p1.x[0] < tmax) {
     field.sample_field(p1);
-    hyman.move_particle(p1, dt);
-    std::cout << p1 << std::endl;
+    mover.move_particle(p1, dt);
+    if (iter % 100 == 0) {
+      std::cout << p1 << std::endl;
+    }
+    ++iter;
   }
+
   return 0;
 }
+
 
 int main()
 {
